@@ -18,3 +18,8 @@ void mqtt_init(void);
 // Publish a debug JSON payload to the robot/debug topic.
 // The payload string must be a null-terminated JSON document.
 void mqtt_publish_debug(const char *payload);
+
+// Publish a command JSON payload to the configured command topic
+// (CONFIG_COMMAND_TOPIC). The payload string must be a null-terminated
+// JSON document.
+void mqtt_publish_command(const char *payload);

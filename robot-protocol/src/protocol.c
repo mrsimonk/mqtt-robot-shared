@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "esp_log.h"
 #include <cJSON.h>
@@ -347,4 +348,34 @@ void protocol_handle_command_json(const char *data, size_t len) {
 
   ESP_LOGD(TAG, "parsed json - type=%s", type->valuestring);
   handle_command(root, type);
+}
+
+void protocol_generate_immediate_command(char *buffer,
+                                size_t buffer_size,
+                                float left_frac,
+                                float right_frac,
+                                uint32_t timeout_ms,
+                                uint32_t now_ms)
+{
+  if (buffer == NULL || buffer_size == 0u) {
+    return;
+  }
+
+  // Format JSON matching the "immediate" command format consumed by
+  // handle_immediate_command(). Example:
+  // {"type":"command","command":{...}}
+  int written = snprintf(buffer,
+                         buffer_size,
+                         "{\"type\":\"command\"," \
+                         "\"command\":{\"kind\":\"immediate\"," \
+                         "\"left\":%.3f,\"right\":%.3f,\"timeout_ms\":%u,\"now_ms\":%u}}",
+                         (double)left_frac,
+                         (double)right_frac,
+                         (unsigned)timeout_ms,
+                         (unsigned)now_ms);
+
+  if (written < 0) {
+    // snprintf error, ensure buffer is at least terminated
+    buffer[0] = '\0';
+  }
 }

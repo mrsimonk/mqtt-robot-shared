@@ -134,3 +134,18 @@ void mqtt_publish_debug(const char *payload)
                                 0,
                                 0);
 }
+
+void mqtt_publish_command(const char *payload)
+{
+  if (s_client == NULL || payload == NULL) {
+    return;
+  }
+
+  // Publish command JSON to the configured command topic
+  (void)esp_mqtt_client_publish(s_client,
+                                CONFIG_COMMAND_TOPIC,
+                                payload,
+                                0,
+                                1,
+                                0);
+}

@@ -40,3 +40,15 @@ typedef struct {
 void protocol_set_handlers(const protocol_handlers_t *handlers);
 
 void protocol_handle_command_json(const char *data, size_t len);
+
+// Format an "immediate" command JSON into the provided buffer.
+// The output is a null-terminated JSON document matching the
+// format expected by protocol_handle_command_json / handle_immediate_command.
+// If the buffer is too small, the JSON will be truncated but remain
+// null-terminated.
+void protocol_generate_immediate_command(char *buffer,
+                                size_t buffer_size,
+                                float left_frac,
+                                float right_frac,
+                                uint32_t timeout_ms,
+                                uint32_t now_ms);

@@ -1,11 +1,8 @@
-#include <string.h>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 #include "esp_event.h"
 #include "esp_log.h"
-#include "esp_netif.h"
 #include "esp_wifi.h"
 
 #include "../include/wifi.h"
@@ -17,14 +14,12 @@ static int s_retry_num = 0;
 
 static wifi_handlers_t s_handlers;
 
-#ifndef CONFIG_EXAMPLE_WIFI_CONN_MAX_RETRY
-#define CONFIG_EXAMPLE_WIFI_CONN_MAX_RETRY 5
-#endif
+#define WIFI_CONN_MAX_RETRY 5
 
 static void on_wifi_disconnect(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data) {
   s_retry_num++;
-  if (s_retry_num > CONFIG_EXAMPLE_WIFI_CONN_MAX_RETRY) {
+  if (s_retry_num > WIFI_CONN_MAX_RETRY) {
     ESP_LOGW(TAG, "Wi-Fi connect failed %d times, giving up", s_retry_num);
     if (s_handlers.on_wifi_disconnected != NULL) {
       s_handlers.on_wifi_disconnected();
@@ -35,7 +30,7 @@ static void on_wifi_disconnect(void *arg, esp_event_base_t event_base,
     return;
   }
   ESP_LOGI(TAG, "Wi-Fi disconnected, retrying (%d/%d)...", s_retry_num,
-           CONFIG_EXAMPLE_WIFI_CONN_MAX_RETRY);
+           WIFI_CONN_MAX_RETRY);
   if (s_handlers.on_wifi_connecting != NULL) {
     s_handlers.on_wifi_connecting();
   }
@@ -60,6 +55,8 @@ static void on_got_ip(void *arg, esp_event_base_t event_base,
 
 esp_err_t wifi_init_sta(void) {
   esp_err_t err;
+
+  ESP_ERROR_CHECK(esp_netif_init());
 
   // Network stack and default event loop must already be initialized
   // (esp_netif_init, esp_event_loop_create_default).
@@ -113,7 +110,7 @@ esp_err_t wifi_init_sta(void) {
   vSemaphoreDelete(s_ip_sem);
   s_ip_sem = NULL;
 
-  if (s_retry_num > CONFIG_WIFI_CONN_MAX_RETRY) {
+  if (s_retry_num > WIFI_CONN_MAX_RETRY) {
     ESP_LOGE(TAG, "Failed to obtain IP after retries");
     return ESP_FAIL;
   }

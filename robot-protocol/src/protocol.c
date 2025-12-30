@@ -219,27 +219,41 @@ static void handle_sequence_type(const cJSON *root) {
     return;
   }
 
-  const cJSON *step = NULL;
-  cJSON_ArrayForEach(step, steps) {
-    if (!cJSON_IsObject(step)) {
-      ESP_LOGW(TAG, "Sequence step is not an object");
-      continue;
+  /* Optional repeat count: how many times to run the sequence steps.
+   * Defaults to 1 if omitted or invalid. Values < 1 are treated as 1. */
+  uint32_t repeat_count = 1u;
+  const cJSON *repeat = cJSON_GetObjectItemCaseSensitive(root, "repeat");
+  if (cJSON_IsNumber(repeat)) {
+    double repeat_val = repeat->valuedouble;
+    if (repeat_val > 1.0) {
+      repeat_count = (uint32_t)repeat_val;
     }
+  }
 
-    /* A step may be either:
-     *  - a full message object with its own "type" (command/sequence/config),
-     *    or
-     *  - a bare command object with a "kind" field.
-     */
-    const cJSON *step_type = cJSON_GetObjectItemCaseSensitive(step, "type");
-    ESP_LOGD(TAG, "Sequence step type: %s", step_type->valuestring);
-    if (cJSON_IsString(step_type) && step_type->valuestring != NULL) {
-      handle_command(step, step_type);
-    } else {
-      (void)handle_single_command_object(step);
+  const cJSON *step = NULL;
+  for (uint32_t i = 0u; i < repeat_count; ++i) {
+    cJSON_ArrayForEach(step, steps) {
+      if (!cJSON_IsObject(step)) {
+        ESP_LOGW(TAG, "Sequence step is not an object");
+        continue;
+      }
+
+      /* A step may be either:
+       *  - a full message object with its own "type" (command/sequence/config),
+       *    or
+       *  - a bare command object with a "kind" field.
+       */
+      const cJSON *step_type = cJSON_GetObjectItemCaseSensitive(step, "type");
+      ESP_LOGD(TAG, "Sequence step type: %s", step_type->valuestring);
+      if (cJSON_IsString(step_type) && step_type->valuestring != NULL) {
+        handle_command(step, step_type);
+      } else {
+        (void)handle_single_command_object(step);
+      }
     }
   }
 }
+
 static void handle_config_type(const cJSON *root) {
   const cJSON *drive = cJSON_GetObjectItemCaseSensitive(root, "drive");
   if (!cJSON_IsObject(drive)) {

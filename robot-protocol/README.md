@@ -350,11 +350,17 @@ A sequence message wraps an ordered list of **steps**, where each step can be ei
 - a full message object with its own `type` (`"command"`, `"sequence"`, or `"config"`), or
 - a bare command object with a `kind` field (equivalent to the inner `command` object of a `type: "command"` message).
 
+An optional **`repeat`** field controls how many times the full list of steps is executed in order.
+
+- If omitted or invalid, `repeat` defaults to `1`.
+- Values `< 1` are treated as `1`.
+
 ### Example: bare commands as steps
 
 ```jsonc
 {
   "type": "sequence",
+  "repeat": 4,
   "steps": [
     { "kind": "drive", "direction": "forward", "speed": 100, "distance": 500 },
     { "kind": "wait", "duration": 1000 },
@@ -406,11 +412,15 @@ Fields:
   - Each element must be a JSON object.
   - If the element has a `type` string, it is treated as a full message and dispatched based on that `type`.
   - Otherwise, it is treated as a bare command object and must have a `kind` and fields appropriate to that kind (see `Type: "command"`).
+- **`repeat`** (number, optional)
+  - Number of times to execute the `steps` list in order.
+  - Defaults to `1` if missing or not numeric.
+  - Values `< 1` are treated as `1`.
 
 Behaviour:
 
 - If `steps` is missing or not an array, the message is ignored with a warning.
-- Every element of `steps` is processed in order.
+- Every element of `steps` is processed in order, `repeat` times.
   - Non‑object entries are skipped with a warning.
 - This provides a flexible **command/config/sequence queue in a single JSON document**, allowing nested sequences and configuration steps.
 

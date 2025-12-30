@@ -12,6 +12,8 @@ static const char *TAG = "protocol";
 
 static protocol_handlers_t s_handlers;
 
+static void handle_command(const cJSON *root, const cJSON *type);
+
 void protocol_set_handlers(const protocol_handlers_t *handlers)
 {
   if (handlers != NULL) {
@@ -176,8 +178,16 @@ static bool handle_single_command_object(const cJSON *command) {
     return true;
   }
   if (strcmp(kind->valuestring, "wait") == 0) {
-    // will delay for a specified amount of time
-    // drive_command_wait();
+    const cJSON *duration =
+        cJSON_GetObjectItemCaseSensitive(command, "duration");
+    uint32_t duration_ms = 0u;
+    if (cJSON_IsNumber(duration)) {
+      duration_ms = (uint32_t)duration->valuedouble;
+    }
+
+    if (s_handlers.wait != NULL) {
+      s_handlers.wait(duration_ms);
+    }
     return true;
   }
   if (strcmp(kind->valuestring, "pause") == 0) {
@@ -216,7 +226,17 @@ static void handle_sequence_type(const cJSON *root) {
       continue;
     }
 
-    (void)handle_single_command_object(step);
+    /* A step may be either:
+     *  - a full message object with its own "type" (command/sequence/config),
+     *    or
+     *  - a bare command object with a "kind" field.
+     */
+    const cJSON *step_type = cJSON_GetObjectItemCaseSensitive(step, "type");
+    if (cJSON_IsString(step_type) && step_type->valuestring != NULL) {
+      handle_command(step, step_type);
+    } else {
+      (void)handle_single_command_object(step);
+    }
   }
 }
 static void handle_config_type(const cJSON *root) {
@@ -313,8 +333,6 @@ static void handle_command(const cJSON *root, const cJSON *type) {
   } else {
     ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
   }
-
-  cJSON_Delete((cJSON *)root);
 }
 
 void protocol_handle_command_json(const char *data, size_t len) {
@@ -348,6 +366,7 @@ void protocol_handle_command_json(const char *data, size_t len) {
 
   ESP_LOGD(TAG, "parsed json - type=%s", type->valuestring);
   handle_command(root, type);
+  cJSON_Delete(root);
 }
 
 void protocol_generate_immediate_command(char *buffer,

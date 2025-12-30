@@ -28,6 +28,7 @@ typedef struct {
                int32_t speed_mm_per_s,
                uint32_t duration_ms);
   void (*stop)(void);
+  void (*wait)(uint32_t duration_ms);
   void (*clear_queue)(void);
   void (*set_led_hsv)(uint16_t h, uint8_t s, uint8_t v);
   void (*set_drive_config)(const protocol_drive_config_t *config);

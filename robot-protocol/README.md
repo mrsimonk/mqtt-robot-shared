@@ -275,15 +275,25 @@ Represents a time delay within a sequence or queue.
   "type": "command",
   "command": {
     "kind": "wait",
-    "duration": 1000 // ms (convention; currently not interpreted here)
+    "duration": 1000 // ms, optional (defaults to 0)
   }
 }
 ```
 
+Fields:
+
+- **`duration`** (number, optional)
+  - Duration to wait in milliseconds.
+  - If missing or not numeric, treated as `0`.
+
 Behaviour:
 
-- Currently this is a **no‑op in the protocol module**; it simply returns `true`.
-- Higher‑level code is expected to implement the actual waiting behaviour if desired.
+- The protocol layer parses `duration` (if present) and passes `duration_ms` to the registered `wait` handler.
+- The drive module enqueues a `WAIT` command that:
+  - Keeps the robot idle (motors in the same state as `stop`) for the requested `duration_ms`.
+  - Completes and advances to the next queued command once the elapsed time reaches `duration_ms`.
+- The drive layer clamps `duration_ms` to a maximum of **30000 ms (30 seconds)**.
+- If `duration_ms == 0`, the wait command completes immediately but still forms a distinct step in the queue.
 
 ### `kind: "pause"`
 
@@ -335,7 +345,12 @@ Behaviour:
 
 ## Type: `"sequence"`
 
-A sequence message wraps an ordered list of command objects, each with its own `kind` and associated fields.
+A sequence message wraps an ordered list of **steps**, where each step can be either:
+
+- a full message object with its own `type` (`"command"`, `"sequence"`, or `"config"`), or
+- a bare command object with a `kind` field (equivalent to the inner `command` object of a `type: "command"` message).
+
+### Example: bare commands as steps
 
 ```jsonc
 {
@@ -349,18 +364,55 @@ A sequence message wraps an ordered list of command objects, each with its own `
 }
 ```
 
+### Example: full messages (including config and nested sequence) as steps
+
+```jsonc
+{
+  "type": "sequence",
+  "steps": [
+    {
+      "type": "config",
+      "drive": {
+        "wheel_track_mm": 172,
+        "wheel_radius_mm": 37.5,
+        "ticks_per_revolution": 3410.0,
+        "min_speed_mm_per_s": 0.0,
+        "max_speed_mm_per_s": 176.0,
+        "enable_speed_control": false,
+        "speed_kp": 0.2,
+        "speed_ki": 0.02,
+        "motor_gain_left": 0.97,
+        "motor_gain_right": 1.0
+      }
+    },
+    {
+      "type": "sequence",
+      "steps": [
+        { "kind": "drive", "direction": "forward", "speed": 100, "distance": 500 },
+        { "kind": "wait", "duration": 1000 }
+      ]
+    },
+    {
+      "type": "command",
+      "command": { "kind": "drive", "direction": "backward", "speed": 100, "distance": 200 }
+    }
+  ]
+}
+```
+
 Fields:
 
 - **`steps`** (array, required)
-  - Each element must be a JSON object that looks like the inner `command` object of a `type: "command"` message.
-  - Each step must have a `kind` and fields appropriate to that kind (see above).
+  - Each element must be a JSON object.
+  - If the element has a `type` string, it is treated as a full message and dispatched based on that `type`.
+  - Otherwise, it is treated as a bare command object and must have a `kind` and fields appropriate to that kind (see `Type: "command"`).
 
 Behaviour:
 
 - If `steps` is missing or not an array, the message is ignored with a warning.
-- Every element of `steps` is processed in order by `handle_single_command_object()`.
+- Every element of `steps` is processed in order.
   - Non‑object entries are skipped with a warning.
-- This provides a simple **command queue in a single JSON document**.
+- This provides a flexible **command/config/sequence queue in a single JSON document**, allowing nested sequences and configuration steps.
 
 ---
 

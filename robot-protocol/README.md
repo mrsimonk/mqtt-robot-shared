@@ -184,10 +184,11 @@ Direct, low‑level control of the left and right motors as fractional outputs. 
   "type": "command",
   "command": {
     "kind": "immediate",
-    "left": -0.5,       // required
-    "right": 0.5,       // required
-    "timeout_ms": 200,  // optional, default 200
-    "now_ms": 123456    // optional, ignored by parser but can be present
+    "left": -0.5,        // required
+    "right": 0.5,        // required
+    "timeout_ms": 200,   // optional, default 200
+    "now_ms": 123456,    // optional, ignored by parser but can be present
+    "buttons": 3         // optional, bitmask: bit0 = Z, bit1 = C
   }
 }
 ```
@@ -206,6 +207,10 @@ Fields:
 - **`now_ms`** (number, optional)
   - **Note:** The parser does not read `now_ms` from JSON.
   - Instead it calls `esp_log_timestamp()` to compute `now_ms` internally.
+ - **`buttons`** (number, optional)
+   - Bitmask representing button state, parsed as `uint32_t buttons_mask`.
+   - Intended usage for Wii Nunchuk: `bit0 = Z`, `bit1 = C` → values 0..3.
+   - If missing or not numeric, defaults to `0`.
 
 Behaviour:
 
@@ -213,7 +218,7 @@ Behaviour:
 - `timeout_ms` defaults to `200` if not supplied.
 - `now_ms` is set from the current log timestamp.
 - If an `immediate` handler is installed, it is called as:
-  - `immediate(left_frac, right_frac, timeout_ms, now_ms)`.
+  - `immediate(left_frac, right_frac, timeout_ms, now_ms, buttons_mask)`.
 
 Additional constraints / recommendations:
 
@@ -230,7 +235,8 @@ void protocol_generate_immediate_command(char *buffer,
                                          float left_frac,
                                          float right_frac,
                                          uint32_t timeout_ms,
-                                         uint32_t now_ms);
+                                         uint32_t now_ms,
+                                         uint32_t buttons_mask);
 ```
 
 - Writes a null‑terminated JSON string into `buffer`.
@@ -243,7 +249,8 @@ void protocol_generate_immediate_command(char *buffer,
    "left":-0.100,
    "right":0.300,
    "timeout_ms":200,
-   "now_ms":123456
+   "now_ms":123456,
+   "buttons":3
  }}
 ```
 
@@ -581,7 +588,8 @@ void on_message_received(const char *data, size_t len) {
     "kind": "immediate",
     "left": -0.2,
     "right": 0.8,
-    "timeout_ms": 250
+    "timeout_ms": 250,
+    "buttons": 0
   }
 }
 ```

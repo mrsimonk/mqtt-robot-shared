@@ -35,7 +35,8 @@ typedef struct {
   void (*immediate)(float left_frac,
                     float right_frac,
                     uint32_t timeout_ms,
-                    uint32_t now_ms);
+                    uint32_t now_ms,
+                    uint32_t buttons_mask);
 } protocol_handlers_t;
 
 void protocol_set_handlers(const protocol_handlers_t *handlers);
@@ -52,4 +53,5 @@ void protocol_generate_immediate_command(char *buffer,
                                 float left_frac,
                                 float right_frac,
                                 uint32_t timeout_ms,
-                                uint32_t now_ms);
+                                uint32_t now_ms,
+                                uint32_t buttons_mask);

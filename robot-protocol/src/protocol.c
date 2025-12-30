@@ -125,6 +125,8 @@ static bool handle_immediate_command(const cJSON *command) {
   const cJSON *right = cJSON_GetObjectItemCaseSensitive(command, "right");
   const cJSON *timeout =
       cJSON_GetObjectItemCaseSensitive(command, "timeout_ms");
+  const cJSON *buttons =
+      cJSON_GetObjectItemCaseSensitive(command, "buttons");
 
   if (!cJSON_IsNumber(left) || !cJSON_IsNumber(right)) {
     ESP_LOGW(TAG, "Invalid immediate command payload (left/right)");
@@ -139,13 +141,26 @@ static bool handle_immediate_command(const cJSON *command) {
           ? (uint32_t)timeout->valuedouble
           : 200u;
 
+  uint32_t buttons_mask =
+      (buttons != NULL && cJSON_IsNumber(buttons))
+          ? (uint32_t)buttons->valuedouble
+          : 0u;
+
   uint32_t now_ms = (uint32_t)esp_log_timestamp();
 
-  ESP_LOGD(TAG, "immediate: left=%f, right=%f, timeout=%u, now=%u", left_frac,
-           right_frac, (unsigned)timeout_ms, (unsigned)now_ms);
+  ESP_LOGD(TAG, "immediate: left=%f, right=%f, timeout=%u, now=%u, buttons=%u",
+           left_frac,
+           right_frac,
+           (unsigned)timeout_ms,
+           (unsigned)now_ms,
+           (unsigned)buttons_mask);
 
   if (s_handlers.immediate != NULL) {
-    s_handlers.immediate(left_frac, right_frac, timeout_ms, now_ms);
+    s_handlers.immediate(left_frac,
+                         right_frac,
+                         timeout_ms,
+                         now_ms,
+                         buttons_mask);
   }
   return true;
 }
@@ -389,7 +404,8 @@ void protocol_generate_immediate_command(char *buffer,
                                 float left_frac,
                                 float right_frac,
                                 uint32_t timeout_ms,
-                                uint32_t now_ms)
+                                uint32_t now_ms,
+                                uint32_t buttons_mask)
 {
   if (buffer == NULL || buffer_size == 0u) {
     return;
@@ -402,11 +418,12 @@ void protocol_generate_immediate_command(char *buffer,
                          buffer_size,
                          "{\"type\":\"command\"," \
                          "\"command\":{\"kind\":\"immediate\"," \
-                         "\"left\":%.3f,\"right\":%.3f,\"timeout_ms\":%u,\"now_ms\":%u}}",
+                         "\"left\":%.3f,\"right\":%.3f,\"timeout_ms\":%u,\"now_ms\":%u,\"buttons\":%u}}",
                          (double)left_frac,
                          (double)right_frac,
                          (unsigned)timeout_ms,
-                         (unsigned)now_ms);
+                         (unsigned)now_ms,
+                         (unsigned)buttons_mask);
 
   if (written < 0) {
     // snprintf error, ensure buffer is at least terminated

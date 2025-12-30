@@ -232,6 +232,7 @@ static void handle_sequence_type(const cJSON *root) {
      *  - a bare command object with a "kind" field.
      */
     const cJSON *step_type = cJSON_GetObjectItemCaseSensitive(step, "type");
+    ESP_LOGD(TAG, "Sequence step type: %s", step_type->valuestring);
     if (cJSON_IsString(step_type) && step_type->valuestring != NULL) {
       handle_command(step, step_type);
     } else {

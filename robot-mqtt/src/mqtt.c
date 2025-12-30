@@ -13,9 +13,149 @@ static const char *TAG = "mqtt_client";
 static esp_mqtt_client_handle_t s_client = NULL;
 static mqtt_handlers_t s_handlers;
 
+static char *s_rx_buffer = NULL;
+static size_t s_rx_buffer_len = 0u;
+static size_t s_rx_expected_len = 0u;
+
 static void log_error_if_nonzero(const char *message, int error_code) {
   if (error_code != 0) {
     ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
+  }
+}
+
+static void mqtt_handle_connected(esp_mqtt_client_handle_t client)
+{
+  int msg_id;
+
+  ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+  mqtt_publish_debug("connected");
+  if (s_handlers.on_connected != NULL) {
+    s_handlers.on_connected();
+  }
+
+  msg_id = esp_mqtt_client_subscribe(client, CONFIG_COMMAND_TOPIC, 1);
+  ESP_LOGI(TAG, "Subscribed to %s, msg_id=%d", CONFIG_COMMAND_TOPIC, msg_id);
+}
+
+static void mqtt_handle_disconnected(void)
+{
+  ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+  if (s_handlers.on_disconnected != NULL) {
+    s_handlers.on_disconnected();
+  }
+}
+
+static void mqtt_handle_subscribed(const esp_mqtt_event_handle_t event)
+{
+  ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+  mqtt_publish_debug("subscribed");
+}
+
+static void mqtt_handle_unsubscribed(const esp_mqtt_event_handle_t event)
+{
+  ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+}
+
+static void mqtt_handle_published(const esp_mqtt_event_handle_t event)
+{
+  ESP_LOGD(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+}
+
+static void mqtt_handle_data(const esp_mqtt_event_handle_t event)
+{
+  ESP_LOGD(TAG, "MQTT_EVENT_DATA len=%d total=%d off=%d", event->data_len,
+           event->total_data_len, event->current_data_offset);
+
+  if (s_handlers.on_command_json == NULL) {
+    return;
+  }
+
+  if (event->total_data_len <= 0 || event->data_len <= 0) {
+    return;
+  }
+
+  if (event->current_data_offset == 0) {
+    if (s_rx_expected_len != 0u || s_rx_buffer != NULL) {
+      free(s_rx_buffer);
+      s_rx_buffer = NULL;
+      s_rx_buffer_len = 0u;
+      s_rx_expected_len = 0u;
+    }
+
+    size_t total = (size_t)event->total_data_len;
+    const size_t kMaxJsonLen = 8192u;
+    if (total == 0u || total > kMaxJsonLen) {
+      ESP_LOGW(TAG, "MQTT payload too large or zero (len=%u)",
+               (unsigned)total);
+      return;
+    }
+
+    s_rx_buffer = malloc(total);
+    if (s_rx_buffer == NULL) {
+      ESP_LOGE(TAG, "Failed to allocate MQTT RX buffer (%u bytes)",
+               (unsigned)total);
+      return;
+    }
+    s_rx_buffer_len = 0u;
+    s_rx_expected_len = total;
+  }
+
+  if (s_rx_buffer == NULL || s_rx_expected_len == 0u) {
+    return;
+  }
+
+  if ((size_t)event->current_data_offset != s_rx_buffer_len) {
+    ESP_LOGW(TAG,
+             "MQTT data offset mismatch (off=%d, buf_len=%u)",
+             event->current_data_offset, (unsigned)s_rx_buffer_len);
+    free(s_rx_buffer);
+    s_rx_buffer = NULL;
+    s_rx_buffer_len = 0u;
+    s_rx_expected_len = 0u;
+    return;
+  }
+
+  if (s_rx_buffer_len + (size_t)event->data_len > s_rx_expected_len) {
+    ESP_LOGW(TAG, "MQTT data overflow (buf_len=%u, chunk=%d, expect=%u)",
+             (unsigned)s_rx_buffer_len, event->data_len,
+             (unsigned)s_rx_expected_len);
+    free(s_rx_buffer);
+    s_rx_buffer = NULL;
+    s_rx_buffer_len = 0u;
+    s_rx_expected_len = 0u;
+    return;
+  }
+
+  memcpy(s_rx_buffer + s_rx_buffer_len, event->data,
+         (size_t)event->data_len);
+  s_rx_buffer_len += (size_t)event->data_len;
+
+  if (s_rx_buffer_len == s_rx_expected_len) {
+    s_handlers.on_command_json(s_rx_buffer, s_rx_buffer_len);
+    free(s_rx_buffer);
+    s_rx_buffer = NULL;
+    s_rx_buffer_len = 0u;
+    s_rx_expected_len = 0u;
+  }
+}
+
+static void mqtt_handle_error(const esp_mqtt_event_handle_t event)
+{
+  ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+  if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+    log_error_if_nonzero("reported from esp-tls",
+                        event->error_handle->esp_tls_last_esp_err);
+    log_error_if_nonzero("reported from tls stack",
+                        event->error_handle->esp_tls_stack_err);
+    log_error_if_nonzero("captured as transport's socket errno",
+                        event->error_handle->esp_transport_sock_errno);
+    ESP_LOGE(TAG, "Last error code reported from esp-tls: 0x%x",
+            event->error_handle->esp_tls_last_esp_err);
+    ESP_LOGE(TAG, "Last error code reported from tls stack: 0x%x",
+            event->error_handle->esp_tls_stack_err);
+    ESP_LOGE(TAG, "socket errno: %d (%s)",
+            event->error_handle->esp_transport_sock_errno,
+            strerror(event->error_handle->esp_transport_sock_errno));
   }
 }
 
@@ -46,57 +186,28 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
            base, event_id);
   esp_mqtt_event_handle_t event = event_data;
   esp_mqtt_client_handle_t client = event->client;
-  int msg_id;
   switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
-      ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-      mqtt_publish_debug("connected");
-      if (s_handlers.on_connected != NULL) {
-        s_handlers.on_connected();
-      }
-      // Subscribe to robot command topic
-      msg_id = esp_mqtt_client_subscribe(client, CONFIG_COMMAND_TOPIC, 1);
-      ESP_LOGI(TAG, "Subscribed to %s, msg_id=%d", CONFIG_COMMAND_TOPIC, msg_id);
+      mqtt_handle_connected(client);
       break;
     case MQTT_EVENT_DISCONNECTED:
-      ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
-      if (s_handlers.on_disconnected != NULL) {
-        s_handlers.on_disconnected();
-      }
+      mqtt_handle_disconnected();
       break;
 
     case MQTT_EVENT_SUBSCRIBED:
-      ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-      mqtt_publish_debug("subscribed");
+      mqtt_handle_subscribed(event);
       break;
     case MQTT_EVENT_UNSUBSCRIBED:
-      ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+      mqtt_handle_unsubscribed(event);
       break;
     case MQTT_EVENT_PUBLISHED:
-      ESP_LOGD(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+      mqtt_handle_published(event);
       break;
     case MQTT_EVENT_DATA:
-      ESP_LOGD(TAG, "MQTT_EVENT_DATA");
-      // printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-      // printf("DATA=%.*s\r\n", event->data_len, event->data);
-      // For now, treat all incoming data on CONFIG_COMMAND_TOPIC as
-      // JSON commands and forward to the registered handler.
-      if (s_handlers.on_command_json != NULL) {
-        s_handlers.on_command_json(event->data, (size_t)event->data_len);
-      }
+      mqtt_handle_data(event);
       break;
     case MQTT_EVENT_ERROR:
-      ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
-      if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
-        log_error_if_nonzero("reported from esp-tls",
-                            event->error_handle->esp_tls_last_esp_err);
-        log_error_if_nonzero("reported from tls stack",
-                            event->error_handle->esp_tls_stack_err);
-        log_error_if_nonzero("captured as transport's socket errno",
-                            event->error_handle->esp_transport_sock_errno);
-        ESP_LOGI(TAG, "Last errno string (%s)",
-                strerror(event->error_handle->esp_transport_sock_errno));
-      }
+      mqtt_handle_error(event);
       break;
     default:
       ESP_LOGI(TAG, "Other event id:%d", event->event_id);
